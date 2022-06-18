@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>视频转为字符</title>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    .box {
+      position: fixed;
+      left: 0;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      z-index: 2;
+      background: #fff;
+    }
+
+    pre {
+      display: block;
+      width: 100%;
+      height: 100%;
+      font-size: 12px;
+      line-height: 12px;
+      letter-spacing: 0;
+    }
+
+    code {
+      display: block;
+      transform-origin: 0 0;
+      transform: scale(0.5);
+    }
+
+    .file {
+      position: fixed;
+      z-index: 3;
+      left: 0;
+      top: 0;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <pre><code id="code"></code></pre>
+  </div>
+  <div class="file">
+    <input id="file" type="file" accept="video/*">
+  </div>
+
+  <script>
+    let globalVideo = null;
+
+    /**
+     * 将 RGB 颜色转换为灰度值
+     */
+    const grayScale = (r, g, b) => {
+      return 0.299 * r + 0.587 * g + 0.114 * b;
+    }
+
+    /**
+     * 转换颜色数据为 ascii 字符
+     */
+    const imageDataToAsciis = (args) => {
+      const chars = 'MNHQ$OC?7>!:-;. ';
+      const { data, width } = args;
+
+      const codes = [];
+      let arr = [];
+
+      for (let i = 0; i < data.length; i += 4) {
+        const gray = grayScale(data[i], data[i + 1], data[i + 2]);
+        const index = Math.floor(gray / 255 * chars.length);
+        const char = chars[index];
+
+        if (arr.length === width) {
+          arr = [];
+          codes.push(arr);
+        }
+
+        arr.push(char);
+      }
+
+      return codes;
+    }
+
+    /**
+     * 渲染视频到 ascii
+     */
+    const renderVideoToAscii = (args) => {
+      const { video, width, height, fontSize, lineHeight, letterSpacing = 0, onChange } = args;
+
+      // 渲染一帧
+      const renderFrame = () => {
+        // change
+        if (globalVideo !== video) return;
+
+        const { videoWidth, videoHeight } = video;
+        const videoScale = videoHeight / videoWidth;
+        if (!videoHeight || !videoWidth) {
+          requestAnimationFrame(() => {
+            renderFrame();
+          });
+          return;
+        }
+        const scale = height / width;
+        let realWidthPX = width;
+        let realHeightPX = height;
+        if (videoScale > scale) {
+          realWidthPX = Math.floor(realHeightPX * (1 / videoScale));
+        } else {
+          realHeightPX = Math.floor(realWidthPX * videoScale);
+        }
+
+        const wCount = Math.floor(width / (fontSize + letterSpacing));
+        const hCount = Math.floor(height / lineHeight);
+        const realWCount = Math.floor(realWidthPX / (fontSize + letterSpacing)) * 2;
+        const realHCount = Math.floor(realHeightPX / lineHeight) * 2;
+
+        // 用 canvas 渲染当前帧
+        const canvas = document.createElement('canvas');
+        canvas.width = realWCount;
+        canvas.height = realHCount;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, realWCount, realHCount);
+        console.log(realWCount)
+
+        // 获取 canvas 对应的颜色数据
+        const imageData = ctx.getImageData(0, 0, realWCount, realHCount);
+        const codes = imageDataToAsciis({
+          data: imageData.data,
+          width: realWCount,
+        });
+
+        onChange(codes);
+
+        requestAnimationFrame(() => {
+          renderFrame();
+        });
+      }
+
+      renderFrame();
+    }
+
+    const startRender = (video) => {
+      if (globalVideo !== video) return;
+
+      renderVideoToAscii({
+        video,
+        width: window.innerWidth,
+        height: window.innerHeight,
+        fontSize: 7,
+        lineHeight: 12,
+        letterSpacing: 0,
+        onChange: (codes) => {
+          const str = codes.map((v) => v.join('')).join('\n');
+          const code = document.getElementById('code');
+          code.innerHTML = str.replace(/[\u00A0-\u9999<>\&]/g, function(i) {
+            return '&#'+i.charCodeAt(0)+';';
+          });
+        }
+      });
+    }
+
+    // 文件改变
+    const file = document.getElementById('file');
+    file.addEventListener('change', (event) => {
+      const video = document.createElement('video');
+      video.muted = true;
+      globalVideo = video;
+
+      const reader = new FileReader();
+      reader.readAsDataURL(event.target.files[0]);
+      reader.addEventListener('load', () => {
+        video.src = reader.result;
+        video.play();
+        video.addEventListener('play', () => {
+          startRender(video);
+        });
+      });
+    });
+  </script>
+</body>
+</html>
